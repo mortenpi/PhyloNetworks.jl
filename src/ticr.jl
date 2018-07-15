@@ -18,9 +18,11 @@ The model assumes a Dirichlet distribution for the observed quartet concordance
 factor, with concentration parameter estimated from the data. An outlier p-value
 is calculated for each four-taxon set. Four-taxon sets are then binned into 
 categories according to their p-values: `0-0.01`, `0.01-0.05`, `0.05-0.10`, and `0.10-1`.
-Finally, a chi-square goodness-of-fit test is performed on these binned
-frequency with 3 degrees of freedom, to determine if they departs from the
-expected proportions `(0.01, 0.04, 0.05, 0.90)`.
+Finally, a one-sided goodness-of-fit test is performed on these binned
+frequencies to determine if they depart from an
+expected 5% p-values being below 0.05 (versus more than 5%).
+Note: this departs from Stenz et al. (2015), who tested for any kind of departure
+from the expected frequencies (0.01, 0.04, 0.05, 0.90) across all 4 bins.
 
 - The first version takes a DataFrame object where each row corresponds to a given
   four-taxon set. The DataFrame is modified by having an additional another column
@@ -36,10 +38,11 @@ and update loglik is returned.
 
 output:
 
-- p-value of the χ^2 test
-- χ^2 statistic
-- value of the pseudo likelihood
+- p-value of the overall goodness-of-fit test
+- test statistic (z value)
+- binned frequencies of outlier p-values
 - value of the concentration parameter α
+- value of the pseudo likelihood (optimized at α)
 - a vector of outlier p-values, one for each four-taxon set
 - network (first and second versions):
   `net` with loglik field updated if `optimizeBL` is false;
@@ -54,8 +57,8 @@ Systematic Biology, 64(5):809-823. doi: 10.1093/sysbio/syv039
 """
 function ticr!(net, D::DataFrame, optimizeBL::Bool)
     d = readTableCF(D);
-    res = ticr!(net, d, optimizeBL); # = (chisq_pval, chisq, pseudolik, alpha, pval)
-    D[:p_value] = res[5] # order of value in results: (chisq_pval, chisq, pseudolik, alpha, pval)
+    res = ticr!(net, d, optimizeBL); # order of value in results "res":
+    D[:p_value] = res[6]             # overallpval, teststat, counts, alpha, pseudolik, pval, net
     return res
 end
 
@@ -66,7 +69,7 @@ function ticr!(net, D::DataCF, optimizeBL::Bool)
         topologyQPseudolik!(net,D);
     end
     res = ticr(D);
-    return (res..., net) # (chisq_pval, chisq, pseudolik, alpha, pval, net)
+    return (res..., net) # (overallpval, teststat, counts, alpha, pseudolik, pval, net)
 end
 
 @doc (@doc ticr!) ticr
@@ -97,19 +100,21 @@ function ticr(D::DataCF)
     c = Float64[]
     e = [0.01,0.04,0.05,0.90]*N
     interval = ["[0.0, 0.01)","[0.01, 0.05)","[0.05, 0.1)","[0.1, 1.0)"]
-    for i in 1:length(interval)
-        if haskey(count,interval[i])
-            push!(c,count[interval[i]])
+    for i in interval
+        if haskey(count, i)
+            push!(c,count[i])
         else
-            push!(c,0)
+            push!(c,0.0)
         end
     end
-    chisq = 0.0
-    for i in 1:length(c)
-        chisq += (c[i]-e[i])^2 / e[i]
-    end
-    chisq_pval = StatsFuns.chisqccdf(3,chisq)
-    return (chisq_pval, chisq, pseudolik, alpha, pval)
+    # in Stenz et al (2015) and in phylolm implementation:
+    # teststat = 0.0 # chi-square test statistics
+    # for i in 1:length(c) teststat += (c[i]-e[i])^2 / e[i]; end
+    # overallpval = StatsFuns.chisqccdf(3,teststat)
+    # instead: reduce to [0,.05) and [.05,1.0] and do a one-sided test
+    teststat = ((c[1]+c[2])/N - 0.05)/sqrt(0.0475/N) # z-value. 0.0475 = 0.05 * (1-0.05)
+    overallpval = StatsFuns.normccdf(teststat) # one-sided: P(Z > z)
+    return (overallpval, teststat, count, alpha, pseudolik, pval)
 end
 
 """
