@@ -128,6 +128,7 @@ module PhyloNetworks
         fitDiscrete,
         ## TICR test
         ticr,
+        ticr_min,
         ticr!
 
     include("types.jl")

@@ -16,7 +16,7 @@ must be fully resolved, and must be of level 1.
 
 The model assumes a Dirichlet distribution for the observed quartet concordance
 factor, with concentration parameter estimated from the data. An outlier p-value
-is calculated for each four-taxon set. Four-taxon sets are then binned into 
+is calculated for each four-taxon set. Four-taxon sets are then binned into
 categories according to their p-values: `0-0.01`, `0.01-0.05`, `0.05-0.10`, and `0.10-1`.
 Finally, a one-sided goodness-of-fit test is performed on these binned
 frequencies to determine if they depart from an
@@ -35,6 +35,10 @@ from the expected frequencies (0.01, 0.04, 0.05, 0.90) across all 4 bins.
 `optimizeBL`: when false, the loglik field of `net` is updated;
 when `true`, a copy of `net` with updated branch lengths (in coalescent units)
 and update loglik is returned.
+
+`minimum`: when true, the outlier p-value per four-taxon set corresponds to the minimum
+p-value of the three quartet concordance factors (as opposed to only using the p-value
+for the major CF). Default is false.
 
 output:
 
@@ -55,20 +59,24 @@ Exploring tree-like and non-tree-like patterns using genome sequences:
 An example using the inbreeding plant species *Arabidopsis thaliana* (L.) Heynh.
 Systematic Biology, 64(5):809-823. doi: 10.1093/sysbio/syv039
 """
-function ticr!(net, D::DataFrame, optimizeBL::Bool)
+function ticr!(net, D::DataFrame, optimizeBL::Bool; minimum=false::Bool)
     d = readTableCF(D);
-    res = ticr!(net, d, optimizeBL); # order of value in results "res":
+    res = ticr!(net, d, optimizeBL,minimum); # order of value in results "res":
     D[:p_value] = res[6]             # overallpval, teststat, counts, alpha, pseudolik, pval, net
     return res
 end
 
-function ticr!(net, D::DataCF, optimizeBL::Bool)
-    if optimizeBL 
+function ticr!(net, D::DataCF, optimizeBL::Bool,minimum::Bool)
+    if optimizeBL
         net = topologyMaxQPseudolik!(net,D);
     else
         topologyQPseudolik!(net,D);
     end
-    res = ticr(D);
+    if minimum
+        res = ticr_min(D);
+    else
+        res = ticr(D);
+    end
     return (res..., net) # (overallpval, teststat, counts, alpha, pseudolik, pval, net)
 end
 
@@ -93,7 +101,7 @@ function ticr(D::DataCF)
         shapeAdd = maximum(temp)
         ipval = StatsFuns.betacdf(alpha*p_max+shapeAdd, alpha*(1-p_max)+2*shapeAdd, p_max-d)+
         StatsFuns.betaccdf(alpha*p_max+shapeAdd, alpha*(1-p_max)+2*shapeAdd, p_max+d)
-        push!(pval,ipval) 
+        push!(pval,ipval)
     end
     pcat = CategoricalArrays.cut(pval,[0, 0.01, 0.05, 0.1, 1]) # CategoricalArrays is required by DataFrames
     count = StatsBase.countmap(pcat)
@@ -151,7 +159,7 @@ function ticr_optimalpha(D::DataCF; x_start=1.0::Float64,
     minExpCF = minimum([minimum(q.qnet.expCF) for q in D.quartet])
     minNonZeroObsCF = minimum([minimum(filter(!iszero,q.obsCF)) for q in D.quartet])
     minObsCF = min(minExpCF,minNonZeroObsCF)
-    for q in D.quartet 
+    for q in D.quartet
         q.obsCF[find(q.obsCF .== 0)] = minObsCF
     end
     for i in 1:M
@@ -188,4 +196,57 @@ function ticr_optimalpha(D::DataCF; x_start=1.0::Float64,
     NLopt.max_objective!(opt,obj)
     fmax, xmax, ret = NLopt.optimize(opt,[x_start])
     return fmax, xmax, ret
+end
+
+
+## same as ticr, but instead of choosing the maximum, we do for every CF,
+## and take the minimum pvalue
+function ticr_min(D::DataCF)
+    res_alpha = ticr_optimalpha(D)
+    alpha = res_alpha[2][1]
+    pseudolik = res_alpha[1]
+    N = D.numQuartets
+    pval = fill(0.0,N,3)
+    for i in 1:N
+        phat = D.quartet[i].obsCF
+        p = D.quartet[i].qnet.expCF
+        for j in 1:3 ##we now do ticr for every CF
+            p_max = p[j]
+            p_max_hat = phat[j]
+            p_sort = sort(D.quartet[i].qnet.expCF)
+            abs(p_max-p_sort[end-1]) > 1e-6 || warn("Check the network for major quartet")
+            d = abs(p_max_hat - p_max)
+            temp = [1-(1-p_max)*alpha/2, 0.0]
+            shapeAdd = maximum(temp)
+            ipval = StatsFuns.betacdf(alpha*p_max+shapeAdd, alpha*(1-p_max)+2*shapeAdd, p_max-d)+
+            StatsFuns.betaccdf(alpha*p_max+shapeAdd, alpha*(1-p_max)+2*shapeAdd, p_max+d)
+            pval[i,j] = ipval
+        end
+    end
+    ## for every quartet, we calculate min pvalue
+    minpval = fill(0.0,N)
+    for i in 1:N
+        minpval[i] = minimum(pval[i,:])
+    end
+    pcat = CategoricalArrays.cut(minpval,[0, 0.01, 0.05, 0.1, 1]) # CategoricalArrays is required by DataFrames
+    count = StatsBase.countmap(pcat)
+    c = Float64[]
+    e = [0.01,0.04,0.05,0.90]*N
+    interval = ["[0.0, 0.01)","[0.01, 0.05)","[0.05, 0.1)","[0.1, 1.0)"]
+    for i in interval
+        if haskey(count, i)
+            push!(c,count[i])
+        else
+            push!(c,0.0)
+        end
+    end
+    # in Stenz et al (2015) and in phylolm implementation:
+    # teststat = 0.0 # chi-square test statistics
+    # for i in 1:length(c) teststat += (c[i]-e[i])^2 / e[i]; end
+    # overallpval = StatsFuns.chisqccdf(3,teststat)
+    # instead: reduce to [0,.05) and [.05,1.0] and do a one-sided test
+    teststat = ((c[1]+c[2])/N - 0.05)/sqrt(0.0475/N) # z-value. 0.0475 = 0.05 * (1-0.05)
+    overallpval = StatsFuns.normccdf(teststat) # one-sided: P(Z > z)
+
+    return (overallpval, teststat, count, alpha, pseudolik, minpval)
 end
