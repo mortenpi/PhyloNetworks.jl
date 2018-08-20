@@ -202,6 +202,7 @@ end
 ## same as ticr, but instead of choosing the maximum, we do for every CF,
 ## and take the minimum pvalue
 function ticr_min(D::DataCF)
+    warn("Do not have info on number of genes per quartet, so we will use Beta dist")
     res_alpha = ticr_optimalpha(D)
     alpha = res_alpha[2][1]
     pseudolik = res_alpha[1]
@@ -210,16 +211,28 @@ function ticr_min(D::DataCF)
     for i in 1:N
         phat = D.quartet[i].obsCF
         p = D.quartet[i].qnet.expCF
+        ngene = D.quartet[i].ngenes ##number of genes used per quartet
+        ngene > 0 || warn("Do not have info on number of genes per quartet, so we will use Beta dist")
         for j in 1:3 ##we now do ticr for every CF
             p_max = p[j]
             p_max_hat = phat[j]
-            p_sort = sort(D.quartet[i].qnet.expCF)
-            abs(p_max-p_sort[end-1]) > 1e-6 || warn("Check the network for major quartet")
+            ##p_sort = sort(D.quartet[i].qnet.expCF)
+            ##abs(p_max-p_sort[end-1]) > 1e-6 || warn("Check the network for major quartet")
             d = abs(p_max_hat - p_max)
-            temp = [1-(1-p_max)*alpha/2, 0.0]
-            shapeAdd = maximum(temp)
-            ipval = StatsFuns.betacdf(alpha*p_max+shapeAdd, alpha*(1-p_max)+2*shapeAdd, p_max-d)+
-            StatsFuns.betaccdf(alpha*p_max+shapeAdd, alpha*(1-p_max)+2*shapeAdd, p_max+d)
+            if(ngene > 0)
+                if(ngene*p_max < 5) ## Binomial (fixit)
+                    ipval = StatsFuns.binomialcdf(ngenes,p_max,ngenes*p_max_hat - d) +
+                    StatsFuns.binomialccdf(ngenes,p_max,ngenes*p_max_hat + d)
+                else ## Normal (fixit)
+                    ipval = StatsFuns.normalcdf(ngenes,p_max,ngenes*p_max_hat - d) +
+                    StatsFuns.normalccdf(ngenes,p_max,ngenes*p_max_hat + d)
+                end
+            else
+                temp = [1-(1-p_max)*alpha/2, 0.0]
+                shapeAdd = maximum(temp)
+                ipval = StatsFuns.betacdf(alpha*p_max+shapeAdd, alpha*(1-p_max)+2*shapeAdd, p_max-d)+
+                StatsFuns.betaccdf(alpha*p_max+shapeAdd, alpha*(1-p_max)+2*shapeAdd, p_max+d)
+            end
             pval[i,j] = ipval
         end
     end
