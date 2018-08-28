@@ -227,16 +227,19 @@ function ticr_min(D::DataCF, betadist::Bool)
             ##abs(p_max-p_sort[end-1]) > 1e-6 || warn("Check the network for major quartet")
             d = abs(p_max_hat - p_max)
             if(!betadist && ngenes > 0)
-                ##info("Using Binomial distribution")
                 if(ngenes*p_max < 5) ## Binomial
-                    ipval = StatsFuns.binomcdf(ngenes,p_max,ngenes*p_max_hat - d) +
-                    StatsFuns.binomccdf(ngenes,p_max,ngenes*p_max_hat + d)
+                    info("Using Binomial distribution for quartet $(D.quartet[i].qnet.quartetTaxon)")
+                    ipval = StatsFuns.binomcdf(ngenes,p_max,ngenes*(p_max_hat - d)) +
+                    StatsFuns.binomccdf(ngenes,p_max,ngenes*(p_max_hat + d))
+                    ## fixit: could be more efficient if we only compute the binomial prob of the interval
+                    ##        (instead of tails)
                 else ## Normal
-                    ipval = StatsFuns.normcdf(ngenes*p_max,ngenes*p_max*(1-p_max),ngenes*p_max_hat - ngenes*d) +
-                    StatsFuns.normccdf(ngenes*p_max,ngenes*p_max*(1-p_max),ngenes*p_max_hat + ngenes*d)
+                    info("Using Normal distribution for quartet $(D.quartet[i].qnet.quartetTaxon)")
+                    ipval = StatsFuns.normcdf(ngenes*p_max,ngenes*p_max*(1-p_max),ngenes*(p_max_hat - d)) +
+                    StatsFuns.normccdf(ngenes*p_max,ngenes*p_max*(1-p_max),ngenes*(p_max_hat + d))
                 end
             else
-                ##info("Using Beta distribution")
+                info("Using Beta distribution for quartet $(D.quartet[i].qnet.quartetTaxon)")
                 temp = [1-(1-p_max)*alpha/2, 0.0]
                 shapeAdd = maximum(temp)
                 ipval = StatsFuns.betacdf(alpha*p_max+shapeAdd, alpha*(1-p_max)+2*shapeAdd, p_max-d)+
