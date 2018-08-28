@@ -43,15 +43,28 @@ netresult1 = ticr!(truenet3,df,false);
 @test netresult1[4] ≈ 29.34808731515701 atol=1e-5 # alpha
 end
 
-@testset "ticr! on data frame, on network, on minimum pvalue" begin
+@testset "ticr! on data frame, on network, on minimum pvalue, beta dist" begin
 truenet3 = readTopology("((((D:0.4,C:0.4):4.8,((A:0.8,B:0.8):2.2)#H1:2.2::0.7):4.0,(#H1:0::0.3,E:3.0):6.2):2.0,O:11.2);");
 # without optimizing branch lengths
-netresult1 = ticr!(truenet3,df,false,minimum=true);
+netresult1 = ticr!(truenet3,df,false,minimum=true, betadist=true)
 #@Test netresult1[2] ≈ 2.851851851851852 # chi-squared statistic
 #@test netresult1[1] ≈ 0.41503515532593677 # p-value
 @test netresult1[2] ≈ 8.589058727506838  # z stat
 @test netresult1[1] ≈ 4.384234705965304e-18   # p-value
 @test netresult1[3] == Dict("[0.05, 0.1)" => 1, "[0.0, 0.01)"  => 4, "[0.01, 0.05)" => 4, "[0.1, 1.0)"  => 6)
+@test netresult1[5] ≈ 68.03708830981597 # pseudo log-lik
+@test netresult1[4] ≈ 29.34808731515701 atol=1e-5 # alpha
+end
+
+@testset "ticr! on data frame, on network, on minimum pvalue, binomial dist" begin
+truenet3 = readTopology("((((D:0.4,C:0.4):4.8,((A:0.8,B:0.8):2.2)#H1:2.2::0.7):4.0,(#H1:0::0.3,E:3.0):6.2):2.0,O:11.2);");
+# without optimizing branch lengths
+netresult1 = ticr!(truenet3,df,false,minimum=true, betadist=false)
+#@Test netresult1[2] ≈ 2.851851851851852 # chi-squared statistic
+#@test netresult1[1] ≈ 0.41503515532593677 # p-value
+@test netresult1[2] ≈ -0.8885233166386386  # z stat
+@test netresult1[1] ≈ 0.8128703403598878   # p-value
+@test netresult1[3] == Dict("[0.05, 0.1)" => 2, "[0.1, 1.0)"  => 13)
 @test netresult1[5] ≈ 68.03708830981597 # pseudo log-lik
 @test netresult1[4] ≈ 29.34808731515701 atol=1e-5 # alpha
 end

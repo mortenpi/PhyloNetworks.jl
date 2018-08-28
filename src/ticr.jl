@@ -1,6 +1,6 @@
 """
-    ticr!(net, D::DataFrame, optimizeBL::Bool)
-    ticr!(net, D::DataCF,    optimizeBL::Bool)
+    ticr!(net, D::DataFrame, optimizeBL::Bool; minimum=false::Bool, betadist=true::Bool)
+    ticr!(net, D::DataCF,    optimizeBL::Bool, minimum::Bool, betadist::Bool)
     ticr(D::DataCF)
 
 Goodness-of-fit test for the adequacy of the multispecies network coalescent,
@@ -40,6 +40,11 @@ and update loglik is returned.
 p-value of the three quartet concordance factors (as opposed to only using the p-value
 for the major CF). Default is false.
 
+`betadist`: when true, ticr uses the Beta distribution for the
+CFs. Default is false, which uses the Binomial (and Normal
+approximation if number of genes > 5). This option is only used when
+`minimum=true`. The usual TICR test (`minimum=false`) still uses the Beta distribution.
+
 output:
 
 - p-value of the overall goodness-of-fit test
@@ -59,21 +64,21 @@ Exploring tree-like and non-tree-like patterns using genome sequences:
 An example using the inbreeding plant species *Arabidopsis thaliana* (L.) Heynh.
 Systematic Biology, 64(5):809-823. doi: 10.1093/sysbio/syv039
 """
-function ticr!(net, D::DataFrame, optimizeBL::Bool; minimum=false::Bool)
+function ticr!(net, D::DataFrame, optimizeBL::Bool; minimum=false::Bool, betadist=true::Bool)
     d = readTableCF(D);
-    res = ticr!(net, d, optimizeBL,minimum); # order of value in results "res":
+    res = ticr!(net, d, optimizeBL,minimum,betadist); # order of value in results "res":
     D[:p_value] = res[6]             # overallpval, teststat, counts, alpha, pseudolik, pval, net
     return res
 end
 
-function ticr!(net, D::DataCF, optimizeBL::Bool,minimum::Bool)
+function ticr!(net, D::DataCF, optimizeBL::Bool,minimum::Bool, betadist::Bool)
     if optimizeBL
         net = topologyMaxQPseudolik!(net,D);
     else
         topologyQPseudolik!(net,D);
     end
     if minimum
-        res = ticr_min(D);
+        res = ticr_min(D, betadist);
     else
         res = ticr(D);
     end
@@ -201,8 +206,8 @@ end
 
 ## same as ticr, but instead of choosing the maximum, we do for every CF,
 ## and take the minimum pvalue
-function ticr_min(D::DataCF)
-    warn("Do not have info on number of genes per quartet, so we will use Beta dist")
+## betadist=true: uses Beta distribution
+function ticr_min(D::DataCF, betadist::Bool)
     res_alpha = ticr_optimalpha(D)
     alpha = res_alpha[2][1]
     pseudolik = res_alpha[1]
@@ -211,23 +216,27 @@ function ticr_min(D::DataCF)
     for i in 1:N
         phat = D.quartet[i].obsCF
         p = D.quartet[i].qnet.expCF
-        ngene = D.quartet[i].ngenes ##number of genes used per quartet
-        ngene > 0 || warn("Do not have info on number of genes per quartet, so we will use Beta dist")
+        ngenes = D.quartet[i].ngenes ##number of genes used per quartet
+        ##@show ngenes
+        ##@show betadist
+        ngenes > 0 || warn("Do not have info on number of genes per quartet, so we will use Beta dist")
         for j in 1:3 ##we now do ticr for every CF
             p_max = p[j]
             p_max_hat = phat[j]
             ##p_sort = sort(D.quartet[i].qnet.expCF)
             ##abs(p_max-p_sort[end-1]) > 1e-6 || warn("Check the network for major quartet")
             d = abs(p_max_hat - p_max)
-            if(ngene > 0)
-                if(ngene*p_max < 5) ## Binomial (fixit)
-                    ipval = StatsFuns.binomialcdf(ngenes,p_max,ngenes*p_max_hat - d) +
-                    StatsFuns.binomialccdf(ngenes,p_max,ngenes*p_max_hat + d)
+            if(!betadist && ngenes > 0)
+                ##info("Using Binomial distribution")
+                if(ngenes*p_max < 5) ## Binomial (fixit)
+                    ipval = StatsFuns.binomcdf(ngenes,p_max,ngenes*p_max_hat - d) +
+                    StatsFuns.binomccdf(ngenes,p_max,ngenes*p_max_hat + d)
                 else ## Normal (fixit)
-                    ipval = StatsFuns.normalcdf(ngenes,p_max,ngenes*p_max_hat - d) +
-                    StatsFuns.normalccdf(ngenes,p_max,ngenes*p_max_hat + d)
+                    ipval = StatsFuns.normcdf(ngenes*p_max,ngenes*p_max*(1-p_max),ngenes*p_max_hat - ngenes*d) +
+                    StatsFuns.normccdf(ngenes*p_max,ngenes*p_max*(1-p_max),ngenes*p_max_hat + ngenes*d)
                 end
             else
+                ##info("Using Beta distribution")
                 temp = [1-(1-p_max)*alpha/2, 0.0]
                 shapeAdd = maximum(temp)
                 ipval = StatsFuns.betacdf(alpha*p_max+shapeAdd, alpha*(1-p_max)+2*shapeAdd, p_max-d)+
