@@ -228,10 +228,10 @@ function ticr_min(D::DataCF, betadist::Bool)
             d = abs(p_max_hat - p_max)
             if(!betadist && ngenes > 0)
                 ##info("Using Binomial distribution")
-                if(ngenes*p_max < 5) ## Binomial (fixit)
+                if(ngenes*p_max < 5) ## Binomial
                     ipval = StatsFuns.binomcdf(ngenes,p_max,ngenes*p_max_hat - d) +
                     StatsFuns.binomccdf(ngenes,p_max,ngenes*p_max_hat + d)
-                else ## Normal (fixit)
+                else ## Normal
                     ipval = StatsFuns.normcdf(ngenes*p_max,ngenes*p_max*(1-p_max),ngenes*p_max_hat - ngenes*d) +
                     StatsFuns.normccdf(ngenes*p_max,ngenes*p_max*(1-p_max),ngenes*p_max_hat + ngenes*d)
                 end
