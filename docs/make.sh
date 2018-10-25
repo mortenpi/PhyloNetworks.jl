@@ -6,7 +6,7 @@ set -ev
 # Build the doc
 if [ "$TRAVIS_OS_NAME" == "linux" ]; then
     julia -e 'Pkg.add("PhyloPlots")';
-    julia -e 'Pkg.add("Documenter")';
+    julia -e 'using Pkg; ps=PackageSpec(name="Documenter", version="0.19"); Pkg.add(ps); Pkg.pin(ps)';
     julia -e 'cd(Pkg.dir("PhyloNetworks")); include(joinpath("docs", "make.jl"))';
 fi
 
